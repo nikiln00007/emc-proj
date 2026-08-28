@@ -4,12 +4,13 @@
   "description": "A full-stack developer community platform for sharing and discovering coding projects",
   "scripts": {
     "start": "node server/server.js",
-    "client": "cd client && npm run dev",
-    "server": "cd server && npm run dev",
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "build": "cd client && npm run build",
-    "build:all": "cd client && npm install && npm run build && cd ../server && npm install",
-    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+    "client": "npm --prefix client run dev",
+    "server": "npm --prefix server run dev",
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
+    "build:all": "npm --prefix client install && npm --prefix client run build && npm --prefix server install",
+    "install:all": "npm install && npm --prefix client install && npm --prefix server install",
+    "postinstall": "npm --prefix client install"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
