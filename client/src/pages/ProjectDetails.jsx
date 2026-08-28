@@ -321,9 +321,9 @@ export default function ProjectDetails() {
 
               {/* Description */}
               <p className="text-gray-700 leading-relaxed text-[15px] whitespace-pre-line mb-6">{project.description}</p>
-
+              
               {/* ── Official Teacher/Faculty Evaluation Card ─────────── */}
-              {evaluation && evaluation.status === 'graded' ? (
+              {evaluation && (evaluation.status === 'graded' || evaluation.grade !== undefined) ? (
                 <div className="mt-8 bg-gradient-to-br from-emerald-50 via-teal-50 to-indigo-50 border-2 border-emerald-200 rounded-2xl p-6 shadow-sm">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-emerald-200/60">
                     <div className="flex items-center gap-3">
@@ -382,11 +382,37 @@ export default function ProjectDetails() {
 
                   {/* Remarks */}
                   {evaluation.feedback && (
-                    <div className="bg-white/90 border border-emerald-100 rounded-xl p-3.5 text-xs text-emerald-950">
+                    <div className="bg-white/90 border border-emerald-100 rounded-xl p-3.5 text-xs text-emerald-950 mb-4">
                       <p className="font-bold text-emerald-800 mb-1 flex items-center gap-1">
                         <span>💬 Faculty Feedback:</span>
                       </p>
                       <p className="leading-relaxed whitespace-pre-line">{evaluation.feedback}</p>
+                    </div>
+                  )}
+
+                  {/* Student Re-evaluation button */}
+                  {isOwner && !isTeacher && (
+                    <div className="flex items-center justify-between pt-3 border-t border-emerald-200/60">
+                      <span className="text-xs text-emerald-800 font-medium">Made improvements to your project?</span>
+                      <button
+                        onClick={handleSubmitForEvaluation}
+                        disabled={submitting}
+                        className="text-xs font-bold bg-white text-emerald-800 border border-emerald-300 hover:bg-emerald-100 px-3.5 py-1.5 rounded-xl shadow-sm transition-all"
+                      >
+                        {submitting ? 'Submitting...' : '🔄 Request Re-evaluation'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Teacher edit marks button */}
+                  {isTeacher && (
+                    <div className="pt-2">
+                      <Link
+                        to={`/teacher/evaluations/${id}`}
+                        className="btn-primary text-xs py-2 px-4 w-full justify-center shadow-sm"
+                      >
+                        ✏️ Edit Marks & Rubric in Teacher Portal →
+                      </Link>
                     </div>
                   )}
                 </div>
@@ -399,22 +425,30 @@ export default function ProjectDetails() {
                     </div>
                     <p className="text-xs text-amber-700 mt-1">
                       {project.evaluationStatus === 'needs_revision'
-                        ? 'Faculty requested revisions before finalizing grade.'
+                        ? 'Faculty requested revisions before finalizing marks.'
                         : project.evaluationStatus === 'in_review'
-                        ? 'A faculty reviewer is currently evaluating this project.'
+                        ? 'A faculty reviewer is actively evaluating this submission.'
                         : 'This project is in the faculty review queue.'}
                     </p>
                   </div>
-                  {isTeacher && (
+                  {isTeacher ? (
                     <Link
-                      to={`/teacher/evaluations/${evaluation?._id || project._id}`}
+                      to={`/teacher/evaluations/${id}`}
                       className="btn-primary text-xs py-2 px-4 whitespace-nowrap shadow-sm"
                     >
                       📝 Grade in Teacher Portal →
                     </Link>
-                  )}
+                  ) : isOwner ? (
+                    <button
+                      onClick={handleSubmitForEvaluation}
+                      disabled={submitting}
+                      className="btn-secondary text-xs py-2 px-3 whitespace-nowrap"
+                    >
+                      {submitting ? 'Submitting...' : '🔄 Update Submission'}
+                    </button>
+                  ) : null}
                 </div>
-              ) : isOwner ? (
+              ) : isOwner && !isTeacher ? (
                 <div className="mt-8 bg-gradient-to-r from-orange-50 via-pink-50 to-purple-50 border border-orange-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div>
                     <h4 className="font-extrabold text-sm text-gray-900 flex items-center gap-2">
@@ -432,6 +466,23 @@ export default function ProjectDetails() {
                   >
                     {submitting ? 'Submitting...' : '🚀 Submit for Faculty Review'}
                   </button>
+                </div>
+              ) : isTeacher ? (
+                <div className="mt-8 bg-indigo-50 border border-indigo-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="font-extrabold text-sm text-indigo-950 flex items-center gap-2">
+                      <span>👨‍🏫 Faculty Evaluator Action</span>
+                    </h4>
+                    <p className="text-xs text-indigo-700 mt-1">
+                      This student project is ready to be graded against the faculty rubric.
+                    </p>
+                  </div>
+                  <Link
+                    to={`/teacher/evaluations/${id}`}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow-sm whitespace-nowrap transition-colors"
+                  >
+                    📝 Grade Submission →
+                  </Link>
                 </div>
               ) : null}
             </div>
@@ -459,7 +510,7 @@ export default function ProjectDetails() {
                       />
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-xs text-gray-400">{commentText.length}/1000</span>
-                        <button type="submit" className="btn-primary text-sm py-2" disabled={postingComment || !commentText.trim()}>
+                        <button type="submit" disabled={postingComment || !commentText.trim()} className="btn-primary text-xs py-2 px-4 shadow-sm">
                           {postingComment ? 'Posting...' : 'Post Comment'}
                         </button>
                       </div>
@@ -467,34 +518,31 @@ export default function ProjectDetails() {
                   </div>
                 </form>
               ) : (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6 text-center">
-                  <p className="text-gray-600 text-sm mb-3">Sign in to leave a comment</p>
-                  <Link to="/login" className="btn-primary text-sm py-2">Sign In</Link>
+                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 text-center mb-8">
+                  <p className="text-gray-600 text-sm font-medium mb-3">Sign in to join the discussion and leave feedback.</p>
+                  <Link to="/login" className="btn-primary text-xs py-2 px-4 inline-flex">
+                    Sign In to Comment
+                  </Link>
                 </div>
               )}
 
-              <div className="space-y-4">
-                {comments.length === 0 ? (
-                  <p className="text-center text-gray-400 py-8 text-sm">No comments yet. Be the first to share your thoughts!</p>
-                ) : (
-                  comments.map(c => (
-                    <CommentCard
-                      key={c._id}
-                      comment={c}
-                      onDelete={cid => {
-                        deleteLocalComment(id, cid);
-                        setComments(prev => prev.filter(x => x._id !== cid));
-                      }}
-                    />
-                  ))
-                )}
-              </div>
+              {comments.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">
+                  No comments yet. Be the first to share your thoughts!
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {comments.map(c => (
+                    <CommentCard key={c._id} comment={c} onDelete={handleDeleteComment} />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Sidebar */}
-          <div className="space-y-5">
-            {/* Interaction card */}
+          {/* Right sidebar */}
+          <div className="space-y-6">
+            {/* Interactions card */}
             <div className="card p-6 space-y-4">
               <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Interactions</h3>
 
@@ -540,17 +588,19 @@ export default function ProjectDetails() {
             {/* Links card */}
             <div className="card p-6 space-y-3">
               <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Links</h3>
-              <a
-                href={project.githubUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 rounded-xl bg-gray-900 text-white hover:bg-gray-700 transition-colors"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-                </svg>
-                <span className="font-semibold text-sm">View on GitHub</span>
-              </a>
+              {project.githubUrl && (
+                <a
+                  href={project.githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-gray-900 text-white hover:bg-gray-700 transition-colors"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                  </svg>
+                  <span className="font-semibold text-sm">View on GitHub</span>
+                </a>
+              )}
               {project.liveDemoUrl && (
                 <a
                   href={project.liveDemoUrl}
@@ -564,8 +614,8 @@ export default function ProjectDetails() {
               )}
             </div>
 
-            {/* Owner actions */}
-            {isOwner && (
+            {/* Student Owner Actions */}
+            {isOwner && !isTeacher && (
               <div className="card p-6 space-y-3">
                 <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Manage</h3>
                 <Link to={`/edit-project/${id}`} className="btn-secondary w-full justify-center">
@@ -578,6 +628,33 @@ export default function ProjectDetails() {
                 >
                   🗑️ Delete Project
                 </button>
+              </div>
+            )}
+
+            {/* Teacher Evaluator Sidebar Tools */}
+            {isTeacher && (
+              <div className="card p-6 space-y-3 bg-gradient-to-br from-indigo-50/50 to-purple-50/50 border border-indigo-100">
+                <h3 className="font-bold text-indigo-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
+                  <span>👨‍🏫 Faculty Tools</span>
+                </h3>
+                <Link
+                  to={`/teacher/evaluations/${id}`}
+                  className="btn-primary w-full justify-center text-xs py-2.5 shadow-sm"
+                >
+                  📝 Open Grading Panel
+                </Link>
+                <Link
+                  to="/teacher/pending"
+                  className="btn-secondary w-full justify-center text-xs py-2 bg-white"
+                >
+                  📋 Submissions Queue
+                </Link>
+                <Link
+                  to="/teacher/gradebook"
+                  className="btn-secondary w-full justify-center text-xs py-2 bg-white"
+                >
+                  📗 Open Gradebook
+                </Link>
               </div>
             )}
           </div>
