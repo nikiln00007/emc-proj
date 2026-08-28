@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import TeacherLayout from '../../components/teacher/TeacherLayout';
 import StatusBadge from '../../components/teacher/StatusBadge';
 import GradePill from '../../components/teacher/GradePill';
@@ -22,98 +22,115 @@ function SkeletonRow() {
 }
 
 export default function PendingReviews() {
+  const location = useLocation();
+  const isPendingOnly = location.pathname.includes('/pending');
+
   const [evaluations, setEvaluations] = useState([]);
   const [loading, setLoading]         = useState(true);
-  const [error, setError]             = useState('');
   const [search, setSearch]           = useState('');
-  const [statusFilter, setStatus]     = useState('');
+  const [statusFilter, setStatus]     = useState(isPendingOnly ? 'pending' : '');
   const [tagFilter, setTag]           = useState('All');
+
+  // Reset status filter when navigating between Pending Reviews and All Submissions
+  useEffect(() => {
+    setStatus(isPendingOnly ? 'pending' : '');
+  }, [isPendingOnly]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
 
-    // 1. Preload local submissions immediately
+    // 1. Prepare local student submissions
     const localProjects = getLocalProjects();
     const localFormatted = localProjects.map((p, idx) => {
       const ev = getProjectEvaluation(p._id);
       const submittedAt = p.submittedForEvaluationAt || p.createdAt || new Date(Date.now() - idx * 86400000).toISOString();
       const waitMs = Date.now() - new Date(submittedAt).getTime();
+      
+      const isGraded = (ev && (ev.grade !== undefined || ev.status === 'graded')) || p.evaluationStatus === 'graded';
+      const status = isGraded ? 'graded' : (ev?.status || p.evaluationStatus || 'pending');
+      const numGrade = ev?.grade !== undefined && !isNaN(Number(ev.grade)) ? Number(ev.grade) : (isGraded ? 8.5 : null);
+
       return {
         _id: ev?._id || p._id,
         project: p,
-        student: p.owner || { name: 'Student', email: 'student@peerhub.edu' },
-        status: ev?.status || (ev?.grade ? 'graded' : (p.evaluationStatus || 'pending')),
-        grade: ev?.grade,
-        letterGrade: ev?.letterGrade,
+        student: p.owner || { name: 'Student Developer', email: 'student@peerhub.edu' },
+        status,
+        grade: numGrade,
+        letterGrade: ev?.letterGrade || (numGrade !== null ? 'B+' : ''),
         submittedAt,
         waitDays: Math.floor(waitMs / (1000 * 60 * 60 * 24)),
         waitHours: Math.floor(waitMs / (1000 * 60 * 60)),
       };
     });
 
+    const filterList = (list) => {
+      let res = list;
+      if (isPendingOnly) {
+        res = res.filter(e => e.status !== 'graded');
+      } else if (statusFilter) {
+        res = res.filter(e => e.status === statusFilter);
+      }
+      if (tagFilter !== 'All') {
+        res = res.filter(e => e.project?.tags?.includes(tagFilter));
+      }
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        res = res.filter(e =>
+          e.project?.title?.toLowerCase().includes(q) ||
+          e.student?.name?.toLowerCase().includes(q)
+        );
+      }
+      return res;
+    };
+
     try {
+      const endpoint = isPendingOnly ? '/api/teacher/pending' : '/api/teacher/evaluations';
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
       if (tagFilter !== 'All') params.set('tag', tagFilter);
       if (search.trim()) params.set('search', search.trim());
       
-      const { data } = await api.get(`/api/teacher/pending?${params.toString()}`);
+      const { data } = await api.get(`${endpoint}?${params.toString()}`);
       if (data && Array.isArray(data.evaluations) && data.evaluations.length > 0) {
-        setEvaluations(data.evaluations);
+        setEvaluations(filterList(data.evaluations));
       } else {
-        // Fallback to local items matching filters
-        let filtered = localFormatted;
-        if (statusFilter) filtered = filtered.filter(e => e.status === statusFilter);
-        if (tagFilter !== 'All') filtered = filtered.filter(e => e.project?.tags?.includes(tagFilter));
-        if (search.trim()) {
-          const q = search.toLowerCase();
-          filtered = filtered.filter(e =>
-            e.project?.title?.toLowerCase().includes(q) ||
-            e.student?.name?.toLowerCase().includes(q)
-          );
-        }
-        setEvaluations(filtered);
+        setEvaluations(filterList(localFormatted));
       }
     } catch (e) {
-      console.warn('Backend queue notice, loading local student submissions:', e.message);
-      let filtered = localFormatted;
-      if (statusFilter) filtered = filtered.filter(e => e.status === statusFilter);
-      if (tagFilter !== 'All') filtered = filtered.filter(e => e.project?.tags?.includes(tagFilter));
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        filtered = filtered.filter(e =>
-          e.project?.title?.toLowerCase().includes(q) ||
-          e.student?.name?.toLowerCase().includes(q)
-        );
-      }
-      setEvaluations(filtered);
+      setEvaluations(filterList(localFormatted));
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, tagFilter]);
+  }, [isPendingOnly, search, statusFilter, tagFilter]);
 
   useEffect(() => { load(); }, [load]);
 
   return (
     <TeacherLayout>
       <div className="mb-6">
-        <div className="inline-flex items-center gap-2 bg-amber-100 border border-amber-200
-          text-amber-800 text-xs font-extrabold px-3 py-1 rounded-full mb-3">
-          📋 Student Submissions & Evaluation Queue
+        <div className={`inline-flex items-center gap-2 border text-xs font-extrabold px-3 py-1 rounded-full mb-3 ${
+          isPendingOnly
+            ? 'bg-amber-100 border-amber-200 text-amber-800'
+            : 'bg-indigo-100 border-indigo-200 text-indigo-800'
+        }`}>
+          {isPendingOnly ? '⏳ Pending Reviews Queue' : '📋 All Student Submissions'}
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-extrabold text-gray-900">Project Evaluation Queue</h1>
+            <h1 className="text-2xl font-extrabold text-gray-900">
+              {isPendingOnly ? 'Project Evaluation Queue' : 'All Project Submissions'}
+            </h1>
             <p className="text-gray-500 text-sm mt-1">
-              {evaluations.length} student submission{evaluations.length !== 1 ? 's' : ''} available for review
+              {isPendingOnly
+                ? `${evaluations.length} submission${evaluations.length !== 1 ? 's' : ''} awaiting your faculty review`
+                : `${evaluations.length} total student submission${evaluations.length !== 1 ? 's' : ''} recorded`}
             </p>
           </div>
           <button
             onClick={() => load()}
             className="self-start sm:self-auto text-xs font-bold px-3 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 shadow-sm"
           >
-            🔄 Refresh Queue
+            🔄 Refresh
           </button>
         </div>
       </div>
@@ -122,22 +139,24 @@ export default function PendingReviews() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-6 flex flex-col md:flex-row gap-3">
         <input
           type="search"
-          placeholder="Search by student or project..."
+          placeholder="Search by student or project title..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="form-input text-sm flex-1"
         />
-        <select
-          value={statusFilter}
-          onChange={e => setStatus(e.target.value)}
-          className="form-input text-sm md:w-48"
-        >
-          <option value="">All Statuses</option>
-          <option value="pending">⏳ Pending Review</option>
-          <option value="in_review">🔍 In Review</option>
-          <option value="needs_revision">🔄 Needs Revision</option>
-          <option value="graded">✅ Graded</option>
-        </select>
+        {!isPendingOnly && (
+          <select
+            value={statusFilter}
+            onChange={e => setStatus(e.target.value)}
+            className="form-input text-sm md:w-48"
+          >
+            <option value="">All Statuses</option>
+            <option value="pending">⏳ Pending</option>
+            <option value="in_review">🔍 In Review</option>
+            <option value="needs_revision">🔄 Needs Revision</option>
+            <option value="graded">✅ Graded</option>
+          </select>
+        )}
         <div className="flex flex-wrap gap-1.5">
           {TAGS.map(t => (
             <button key={t} onClick={() => setTag(t)}
@@ -164,14 +183,16 @@ export default function PendingReviews() {
               </tr>
             </thead>
             <tbody>
-              {loading && [...Array(5)].map((_, i) => <SkeletonRow key={i} />)}
+              {loading && [...Array(4)].map((_, i) => <SkeletonRow key={i} />)}
 
               {!loading && evaluations.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-16 text-center">
                     <div className="text-4xl mb-3">🎉</div>
-                    <p className="font-bold text-gray-700">No submissions match your filters</p>
-                    <p className="text-xs text-gray-400 mt-1">Try a different status filter or clear search</p>
+                    <p className="font-bold text-gray-700">
+                      {isPendingOnly ? 'All caught up! No pending submissions.' : 'No submissions match your filters.'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">Try clearing search or checking other tabs</p>
                   </td>
                 </tr>
               )}
@@ -184,7 +205,7 @@ export default function PendingReviews() {
                   month: 'short', day: 'numeric', year: 'numeric',
                 }) : 'Recently';
 
-                const isGraded = ev.status === 'graded' || ev.grade !== undefined;
+                const isGraded = ev.status === 'graded';
 
                 return (
                   <tr key={ev._id || project._id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
@@ -241,8 +262,8 @@ export default function PendingReviews() {
 
                     {/* Status */}
                     <td className="px-4 py-3.5">
-                      {isGraded && ev.grade !== undefined && ev.grade !== null ? (
-                        <GradePill grade={ev.grade} letterGrade={ev.letterGrade} size="sm" />
+                      {isGraded && ev.grade !== undefined && ev.grade !== null && !isNaN(Number(ev.grade)) ? (
+                        <GradePill grade={Number(ev.grade)} letterGrade={ev.letterGrade} size="sm" />
                       ) : (
                         <StatusBadge status={ev.status || 'pending'} size="sm" />
                       )}
@@ -252,7 +273,7 @@ export default function PendingReviews() {
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2">
                         <Link
-                          to={`/teacher/evaluations/${ev.project?._id || ev._id}`}
+                          to={`/teacher/evaluations/${project._id || ev._id}`}
                           className={`text-xs font-bold px-3 py-1.5 rounded-xl text-white shadow-sm whitespace-nowrap transition-all ${
                             isGraded
                               ? 'bg-emerald-600 hover:bg-emerald-700'

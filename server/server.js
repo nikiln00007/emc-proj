@@ -174,15 +174,18 @@ app.get('/api/analytics', async (req, res, next) => {
 const clientDistPath = path.join(__dirname, '../client/dist');
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next();
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(clientDistPath, 'index.html'));
   });
 }
 
 // 404 handler for API routes
-app.use('/api/*', (req, res) => {
-  res.status(404).json({ message: 'API endpoint not found.' });
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ message: 'API endpoint not found.' });
+  }
+  next();
 });
 
 // ── Centralized error handler ─────────────────────────────────────────────────
