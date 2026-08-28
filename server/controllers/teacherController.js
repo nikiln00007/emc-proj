@@ -222,10 +222,28 @@ const getEvaluationById = async (req, res, next) => {
           .populate('student', 'name email profileImage bio')
           .populate('teacher', 'name email profileImage teacherProfile');
       }
+
+      // If still not found, check if a Project exists with this ID and return a new evaluation skeleton
+      if (!evaluation) {
+        const project = await Project.findById(id);
+        if (project) {
+          const student = await User.findOne({ firebaseUid: project.owner?.firebaseUid });
+          return res.json({
+            _id: project._id,
+            project,
+            student: student || { name: project.owner?.name, profileImage: project.owner?.profileImage },
+            status: project.evaluationStatus || 'in_review',
+            grade: null,
+            rubric: [],
+            feedback: '',
+            privateNotes: '',
+          });
+        }
+      }
     }
 
     if (!evaluation) {
-      return res.status(404).json({ message: 'Evaluation record not found.' });
+      return res.status(404).json({ message: 'Evaluation or Project not found.' });
     }
 
     res.json(evaluation);
@@ -292,12 +310,39 @@ const updateEvaluation = async (req, res, next) => {
     }
 
     let evaluation = await Evaluation.findOne(query);
-    if (!evaluation) {
-      return res.status(404).json({ message: 'Evaluation record not found.' });
-    }
-
     const { grade, rubric, feedback, privateNotes, status } = req.body;
     const teacherUser = req.dbUser || (await User.findOne({ firebaseUid: req.user.uid }));
+    const letterGrade = grade !== undefined ? calculateLetterGrade(grade) : '';
+
+    if (!evaluation) {
+      // Check if project exists and auto-create evaluation
+      const project = await Project.findById(id);
+      if (project) {
+        const studentUser = await User.findOne({ firebaseUid: project.owner?.firebaseUid });
+        evaluation = await Evaluation.create({
+          project: project._id,
+          student: studentUser?._id,
+          studentUid: project.owner?.firebaseUid,
+          teacher: teacherUser?._id,
+          teacherUid: req.user.uid,
+          teacherName: teacherUser?.name || 'Faculty Evaluator',
+          status: status || 'in_review',
+          grade: grade !== undefined ? Number(grade) : undefined,
+          letterGrade,
+          rubric: rubric || [],
+          feedback: feedback || '',
+          privateNotes: privateNotes || '',
+          gradedAt: status === 'graded' ? new Date() : undefined,
+        });
+
+        project.isSubmittedForEvaluation = true;
+        project.evaluationStatus = status || 'in_review';
+        await project.save();
+
+        return res.json(evaluation);
+      }
+      return res.status(404).json({ message: 'Evaluation record not found.' });
+    }
 
     if (grade !== undefined) {
       evaluation.grade = Number(grade);

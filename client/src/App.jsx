@@ -43,9 +43,9 @@ export default function App() {
           <Route path="/profile/:uid" element={<Profile />} />
           <Route path="/analytics"   element={<Analytics />} />
 
-          {/* Legacy admin route → redirect to teacher dashboard */}
-          <Route path="/admin"       element={<AdminDashboard />} />
-          <Route path="/evaluations" element={<AdminDashboard />} />
+          {/* Legacy admin route → protected for teachers/admins only */}
+          <Route path="/admin"       element={<ProtectedRoute allowedRoles={TEACHER_ROLES}><TeacherDashboard /></ProtectedRoute>} />
+          <Route path="/evaluations" element={<ProtectedRoute allowedRoles={TEACHER_ROLES}><PendingReviews /></ProtectedRoute>} />
 
           {/* ── Student-protected routes ─────────────────────── */}
           <Route path="/add-project"       element={<ProtectedRoute><AddProject /></ProtectedRoute>} />
