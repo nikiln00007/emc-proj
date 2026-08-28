@@ -2,13 +2,13 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const mongoose = require('mongoose');
+// Supabase replaces MongoDB — no mongoose required
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const admin = require('firebase-admin');
 
-const connectDB = require('./config/db');
+require('./config/supabase'); // Initialize Supabase client on startup
 const { errorHandler } = require('./middleware/errorMiddleware');
 
 const projectRoutes = require('./routes/projectRoutes');
@@ -54,23 +54,7 @@ try {
   console.warn('⚠️ Firebase Admin SDK warning:', error.message);
 }
 
-// ── Connect to MongoDB ───────────────────────────────────────────────────────
-const { seedDatabase } = require('./config/seed');
-connectDB().then(() => seedDatabase()).catch(() => {});
-
 const app = express();
-
-// Middleware to ensure DB connection in serverless environment
-app.use(async (req, res, next) => {
-  if (mongoose.connection.readyState < 1) {
-    try {
-      await connectDB();
-    } catch (err) {
-      console.warn('Serverless DB reconnect notice:', err.message);
-    }
-  }
-  next();
-});
 
 // ── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: false }));
@@ -147,37 +131,16 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/users', writeLimiter, userRoutes);
 app.use('/api/teacher', teacherRoutes);
 
-// Analytics endpoint
-const Project = require('./models/Project');
-const Comment = require('./models/Comment');
-const User = require('./models/User');
+// Analytics endpoint (Supabase)
+const svc = require('./services/supabaseService');
 
 app.get('/api/analytics', async (req, res, next) => {
   try {
-    const [
-      totalUsers,
-      totalProjects,
-      totalComments,
-      topLikedRaw,
-      topRatedRaw,
-      likesAgg,
-    ] = await Promise.all([
-      User.countDocuments(),
-      Project.countDocuments(),
-      Comment.countDocuments(),
-      Project.findOne().sort({ likes: -1 }).select('title likes averageRating owner'),
-      Project.findOne().sort({ averageRating: -1 }).select('title averageRating ratingCount owner'),
-      Project.aggregate([{ $group: { _id: null, total: { $sum: '$likes' } } }]),
-    ]);
-
-    res.json({
-      totalUsers,
-      totalProjects,
-      totalComments,
-      totalLikes: likesAgg[0]?.total || 0,
-      mostLikedProject: topLikedRaw,
-      highestRatedProject: topRatedRaw,
-    });
+    const { supabase: sb } = require('./config/supabase');
+    if (!sb) return res.status(503).json({ message: 'Database not configured.' });
+    const analytics = await svc.getDbAnalytics();
+    if (analytics.error) return next(analytics.error);
+    res.json(analytics);
   } catch (err) {
     next(err);
   }

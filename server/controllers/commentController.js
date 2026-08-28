@@ -1,70 +1,55 @@
-const mongoose = require('mongoose');
-const Comment = require('../models/Comment');
+const svc = require('../services/supabaseService');
+const { supabase } = require('../config/supabase');
 
-const isValidId = (id) => typeof id === 'string' && id.trim().length > 0;
+const supabaseReady = () => !!supabase;
 
 // GET /api/comments/:projectId
 const getComments = async (req, res, next) => {
   try {
-    if (!req.params.projectId) {
-      return res.status(400).json({ message: 'Project ID is required.' });
-    }
-    const comments = await Comment.find({ projectId: req.params.projectId }).sort({ createdAt: -1 });
-    res.json(comments);
-  } catch (err) {
-    next(err);
-  }
+    if (!supabaseReady()) return res.status(503).json({ message: 'Database not configured.' });
+
+    const { data, error } = await svc.getCommentsByProjectId(req.params.projectId);
+    if (error) return next(error);
+    res.json(data);
+  } catch (err) { next(err); }
 };
 
 // POST /api/comments
 const createComment = async (req, res, next) => {
   try {
-    const { projectId, text } = req.body;
+    if (!supabaseReady()) return res.status(503).json({ message: 'Database not configured.' });
 
-    if (!projectId || !text || text.trim() === '') {
-      return res.status(400).json({ message: 'Project ID and comment text are required.' });
+    const { projectId, text, userName, userImage } = req.body;
+    if (!projectId || !text?.trim()) {
+      return res.status(400).json({ message: 'projectId and text are required.' });
     }
 
-    const comment = await Comment.create({
+    const { data, error } = await svc.createComment({
       projectId,
-      userId: req.user?.uid || req.body.userId || 'dev-user',
-      userName: req.body.userName || req.user?.name || 'Anonymous Developer',
-      userImage: req.body.userImage || '',
-      text: text.trim(),
+      userId:    req.user?.uid || 'dev-user',
+      userName:  userName || req.user?.name || 'Anonymous Developer',
+      userImage: userImage || '',
+      text:      text.trim(),
     });
 
-    res.status(201).json(comment);
-  } catch (err) {
-    next(err);
-  }
+    if (error) return next(error);
+    res.status(201).json(data);
+  } catch (err) { next(err); }
 };
 
 // DELETE /api/comments/:id
 const deleteComment = async (req, res, next) => {
   try {
-    if (!req.params.id) return res.status(400).json({ message: 'Comment ID is required.' });
+    if (!supabaseReady()) return res.status(503).json({ message: 'Database not configured.' });
 
-    let comment = null;
-    if (mongoose.Types.ObjectId.isValid(req.params.id)) {
-      comment = await Comment.findById(req.params.id);
-    } else {
-      comment = await Comment.findOne({ _id: req.params.id });
-    }
-    if (!comment) return res.status(404).json({ message: 'Comment not found.' });
-
-    if (req.user && comment.userId !== req.user.uid) {
-      return res.status(403).json({ message: 'Forbidden: you cannot delete this comment.' });
-    }
-
-    if (mongoose.Types.ObjectId.isValid(req.params.id)) {
-      await Comment.findByIdAndDelete(req.params.id);
-    } else {
-      await Comment.deleteOne({ _id: req.params.id });
+    const { error } = await svc.deleteComment(req.params.id, req.user?.uid);
+    if (error) {
+      if (error.status === 404) return res.status(404).json({ message: error.message });
+      if (error.status === 403) return res.status(403).json({ message: error.message });
+      return next(error);
     }
     res.json({ message: 'Comment deleted.' });
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 };
 
 module.exports = { getComments, createComment, deleteComment };
