@@ -7,10 +7,19 @@
     "client": "npm --prefix client run dev",
     "server": "npm --prefix server run dev",
     "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
-    "build": "npm --prefix client run build",
-    "build:all": "npm --prefix client install && npm --prefix client run build && npm --prefix server install",
-    "install:all": "npm install && npm --prefix client install && npm --prefix server install",
-    "postinstall": "npm --prefix client install"
+    "build": "npm --prefix server install && npm --prefix client install && npm --prefix client run build",
+    "render-build": "npm --prefix server install",
+    "render-start": "node server/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "express-validator": "^7.3.2",
+    "firebase-admin": "^14.3.0",
+    "helmet": "^8.3.0",
+    "mongoose": "^9.9.3"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
