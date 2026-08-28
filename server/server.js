@@ -2,6 +2,7 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
+const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -58,6 +59,18 @@ const { seedDatabase } = require('./config/seed');
 connectDB().then(() => seedDatabase()).catch(() => {});
 
 const app = express();
+
+// Middleware to ensure DB connection in serverless environment
+app.use(async (req, res, next) => {
+  if (mongoose.connection.readyState < 1) {
+    try {
+      await connectDB();
+    } catch (err) {
+      console.warn('Serverless DB reconnect notice:', err.message);
+    }
+  }
+  next();
+});
 
 // ── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: false }));
@@ -191,8 +204,12 @@ app.use((req, res, next) => {
 // ── Centralized error handler ─────────────────────────────────────────────────
 app.use(errorHandler);
 
-// ── Start server ──────────────────────────────────────────────────────────────
+// ── Start server (when not running in serverless environment) ─────────────────
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
+  });
+}
+
+module.exports = app;

@@ -1,6 +1,9 @@
 const mongoose = require('mongoose');
 
 const connectDB = async () => {
+  if (mongoose.connection.readyState >= 1) {
+    return;
+  }
   const uri = process.env.MONGO_URI || process.env.MONGODB_URI;
   if (!uri) {
     console.warn('⚠️ MONGO_URI / MONGODB_URI is not set in environment variables. Running in resilient local mode.');
