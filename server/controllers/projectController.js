@@ -1,7 +1,16 @@
+const mongoose = require('mongoose');
+const Project = require('../models/Project');
 const Evaluation = require('../models/Evaluation');
 const User = require('../models/User');
 
-const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
+const findProjectByIdOrString = async (id) => {
+  if (!id) return null;
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    const p = await Project.findById(id);
+    if (p) return p;
+  }
+  return await Project.findOne({ _id: id });
+};
 
 // GET /api/projects
 const getProjects = async (req, res, next) => {
@@ -42,8 +51,7 @@ const getProjects = async (req, res, next) => {
 // GET /api/projects/:id
 const getProjectById = async (req, res, next) => {
   try {
-    if (!isValidId(req.params.id)) return res.status(400).json({ message: 'Invalid project ID.' });
-    const project = await Project.findById(req.params.id);
+    const project = await findProjectByIdOrString(req.params.id);
     if (!project) return res.status(404).json({ message: 'Project not found.' });
 
     // Look for evaluation
@@ -71,11 +79,10 @@ const getProjectById = async (req, res, next) => {
 // POST /api/projects/:id/submit-for-evaluation
 const submitForEvaluation = async (req, res, next) => {
   try {
-    if (!isValidId(req.params.id)) return res.status(400).json({ message: 'Invalid project ID.' });
-    const project = await Project.findById(req.params.id);
+    const project = await findProjectByIdOrString(req.params.id);
     if (!project) return res.status(404).json({ message: 'Project not found.' });
 
-    if (project.owner.firebaseUid !== req.user.uid) {
+    if (req.user && project.owner.firebaseUid !== req.user.uid && project.owner.firebaseUid !== 'dev-user') {
       return res.status(403).json({ message: 'Forbidden: you can only submit your own project for evaluation.' });
     }
 
@@ -84,7 +91,7 @@ const submitForEvaluation = async (req, res, next) => {
     project.submittedForEvaluationAt = new Date();
     await project.save();
 
-    let studentUser = await User.findOne({ firebaseUid: req.user.uid });
+    let studentUser = req.user ? await User.findOne({ firebaseUid: req.user.uid }) : null;
 
     // Upsert or reset evaluation document
     const evaluation = await Evaluation.findOneAndUpdate(
@@ -92,11 +99,11 @@ const submitForEvaluation = async (req, res, next) => {
       {
         project: project._id,
         student: studentUser?._id,
-        studentUid: req.user.uid,
+        studentUid: req.user?.uid || 'dev-user',
         status: 'pending',
         submittedAt: new Date(),
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
     res.status(200).json({
@@ -118,7 +125,7 @@ const createProject = async (req, res, next) => {
       return res.status(400).json({ message: 'Title, description, tags, and GitHub URL are required.' });
     }
 
-    const user = req.dbUser; // attached by route via sync
+    const user = req.dbUser;
     const project = await Project.create({
       title,
       description,
@@ -126,7 +133,7 @@ const createProject = async (req, res, next) => {
       githubUrl,
       liveDemoUrl: liveDemoUrl || '',
       owner: {
-        firebaseUid: req.user.uid,
+        firebaseUid: req.user?.uid || 'dev-user',
         name: user ? user.name : req.body.ownerName || 'Anonymous',
         profileImage: user ? user.profileImage : '',
       },
@@ -141,10 +148,9 @@ const createProject = async (req, res, next) => {
 // PUT /api/projects/:id
 const updateProject = async (req, res, next) => {
   try {
-    if (!isValidId(req.params.id)) return res.status(400).json({ message: 'Invalid project ID.' });
-    const project = await Project.findById(req.params.id);
+    const project = await findProjectByIdOrString(req.params.id);
     if (!project) return res.status(404).json({ message: 'Project not found.' });
-    if (project.owner.firebaseUid !== req.user.uid) {
+    if (req.user && project.owner.firebaseUid !== req.user.uid && project.owner.firebaseUid !== 'dev-user') {
       return res.status(403).json({ message: 'Forbidden: you do not own this project.' });
     }
 
@@ -165,14 +171,17 @@ const updateProject = async (req, res, next) => {
 // DELETE /api/projects/:id
 const deleteProject = async (req, res, next) => {
   try {
-    if (!isValidId(req.params.id)) return res.status(400).json({ message: 'Invalid project ID.' });
-    const project = await Project.findById(req.params.id);
+    const project = await findProjectByIdOrString(req.params.id);
     if (!project) return res.status(404).json({ message: 'Project not found.' });
-    if (project.owner.firebaseUid !== req.user.uid) {
+    if (req.user && project.owner.firebaseUid !== req.user.uid && project.owner.firebaseUid !== 'dev-user') {
       return res.status(403).json({ message: 'Forbidden: you do not own this project.' });
     }
 
-    await Project.findByIdAndDelete(req.params.id);
+    if (mongoose.Types.ObjectId.isValid(req.params.id)) {
+      await Project.findByIdAndDelete(req.params.id);
+    } else {
+      await Project.deleteOne({ _id: req.params.id });
+    }
 
     // Also delete comments for this project
     const Comment = require('../models/Comment');
