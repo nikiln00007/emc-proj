@@ -8,6 +8,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import {
+  getLocalProjects,
   getLocalProjectById,
   getLocalComments,
   addLocalComment,
@@ -17,7 +18,6 @@ import {
 } from '../utils/projectStorage';
 import StatusBadge from '../components/teacher/StatusBadge';
 import GradePill from '../components/teacher/GradePill';
-import { numericToLetter } from '../utils/gradeHelpers';
 
 const TAG_COLORS = [
   'bg-orange-100 text-orange-700', 'bg-purple-100 text-purple-700',
@@ -54,12 +54,12 @@ export default function ProjectDetails() {
   const { currentUser, dbUser, isTeacher } = useAuth();
   const navigate = useNavigate();
 
-  const [project, setProject] = useState(null);
+  const [project, setProject] = useState(() => getLocalProjectById(id));
   const [evaluation, setEvaluation] = useState(() => getProjectEvaluation(id));
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const [comments, setComments] = useState([]);
+  const [comments, setComments] = useState(() => getLocalComments(id));
   const [commentText, setCommentText] = useState('');
   const [postingComment, setPostingComment] = useState(false);
 
@@ -78,9 +78,19 @@ export default function ProjectDetails() {
 
   useEffect(() => {
     const load = async () => {
-      setLoading(true);
       setError('');
-      setEvaluation(getProjectEvaluation(id));
+      // Pre-load from local/showcase data
+      const localP = getLocalProjectById(id);
+      if (localP) {
+        setProject(localP);
+        setLikes(localP.likes || 0);
+        setAvgRating(localP.averageRating || 0);
+        setRatingCount(localP.ratingCount || 0);
+        setComments(getLocalComments(id));
+        const ev = getProjectEvaluation(id);
+        if (ev) setEvaluation(ev);
+      }
+
       try {
         const [pRes, cRes] = await Promise.all([
           api.get(`/api/projects/${id}`),
@@ -92,7 +102,6 @@ export default function ProjectDetails() {
           setLikes(p.likes || 0);
           setAvgRating(p.averageRating || 0);
           setRatingCount(p.ratingCount || 0);
-          // Capture evaluation embedded by backend (privateNotes already stripped for students)
           if (p.evaluation) setEvaluation(p.evaluation);
           if (currentUser) {
             setLiked(p.likedBy?.includes(currentUser.uid));
@@ -100,34 +109,24 @@ export default function ProjectDetails() {
             const myRating = p.ratings?.find(r => r.userId === currentUser.uid);
             if (myRating) setUserRating(myRating.value);
           }
-          setComments(cRes.data || []);
+          if (Array.isArray(cRes.data) && cRes.data.length > 0) {
+            setComments(cRes.data);
+          }
           return;
         }
       } catch (e) {
-        console.warn('API lookup notice, checking local/showcase storage:', e.message);
-      } finally {
-        setLoading(false);
+        console.warn('API lookup notice, using local storage:', e.message);
       }
 
-      // Check local storage & showcase items
-      const found = getLocalProjectById(id);
-      if (found) {
-        setProject(found);
-        setLikes(found.likes || 0);
-        setAvgRating(found.averageRating || 0);
-        setRatingCount(found.ratingCount || 0);
-        if (currentUser) {
-          const likedList = JSON.parse(localStorage.getItem('peerhub_liked_' + currentUser.uid) || '[]');
-          const bookmarkedList = JSON.parse(localStorage.getItem('peerhub_bookmarks_' + currentUser.uid) || '[]');
-          setLiked(found.likedBy?.includes(currentUser.uid) || likedList.includes(id));
-          setBookmarked(found.bookmarkedBy?.includes(currentUser.uid) || bookmarkedList.includes(id));
-          const myRating = found.ratings?.find(r => r.userId === currentUser.uid);
-          if (myRating) setUserRating(myRating.value);
+      if (!localP) {
+        const fallbackAll = getLocalProjects();
+        const fallbackFound = fallbackAll.find(p => String(p._id) === String(id));
+        if (fallbackFound) {
+          setProject(fallbackFound);
+          setComments(getLocalComments(id));
+        } else {
+          setError('Project not found');
         }
-        setComments(getLocalComments(id));
-        setError('');
-      } else {
-        setError('Project not found');
       }
     };
     load();
@@ -221,6 +220,14 @@ export default function ProjectDetails() {
     setPostingComment(false);
   };
 
+  const handleDeleteComment = async (commentId) => {
+    try {
+      await api.delete(`/api/comments/${commentId}`);
+    } catch {}
+    deleteLocalComment(id, commentId);
+    setComments(prev => prev.filter(c => String(c._id) !== String(commentId)));
+  };
+
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -246,14 +253,14 @@ export default function ProjectDetails() {
     }
   };
 
-  if (loading) return (
+  if (loading && !project) return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <LoadingSpinner size="lg" text="Loading project..." />
     </div>
   );
 
-  if (error || !project) return (
+  if (error && !project) return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
@@ -265,8 +272,10 @@ export default function ProjectDetails() {
     </div>
   );
 
-  const isOwner = currentUser?.uid === project.owner?.firebaseUid || project.owner?.firebaseUid === 'dev-user';
-  const date = new Date(project.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const isOwner = currentUser?.uid === project?.owner?.firebaseUid || project?.owner?.firebaseUid === 'dev-user';
+  const date = project?.createdAt
+    ? new Date(project.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : 'Recently';
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -286,7 +295,7 @@ export default function ProjectDetails() {
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-8">
           <Link to="/home" className="hover:text-orange-500 transition-colors">Explore</Link>
           <span>/</span>
-          <span className="text-gray-600 font-medium line-clamp-1">{project.title}</span>
+          <span className="text-gray-600 font-medium line-clamp-1">{project?.title || 'Project Details'}</span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -295,32 +304,32 @@ export default function ProjectDetails() {
             {/* Header card */}
             <div className="card p-8">
               <div className="h-1.5 rounded-full bg-gradient-to-r from-orange-400 via-pink-400 to-purple-400 mb-6" />
-              <h1 className="text-3xl font-extrabold text-gray-900 mb-4 leading-tight">{project.title}</h1>
+              <h1 className="text-3xl font-extrabold text-gray-900 mb-4 leading-tight">{project?.title}</h1>
 
               {/* Author */}
-              <Link to={`/profile/${project.owner?.firebaseUid}`} className="flex items-center gap-3 mb-6 group w-fit">
-                {project.owner?.profileImage ? (
+              <Link to={`/profile/${project?.owner?.firebaseUid || 'dev-user'}`} className="flex items-center gap-3 mb-6 group w-fit">
+                {project?.owner?.profileImage ? (
                   <img src={project.owner.profileImage} alt={project.owner.name} className="w-10 h-10 rounded-full object-cover" />
                 ) : (
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-pink-400 flex items-center justify-center text-white font-bold">
-                    {(project.owner?.name || 'A')[0].toUpperCase()}
+                    {(project?.owner?.name || 'A')[0].toUpperCase()}
                   </div>
                 )}
                 <div>
-                  <p className="font-semibold text-gray-800 group-hover:text-orange-500 transition-colors">{project.owner?.name}</p>
+                  <p className="font-semibold text-gray-800 group-hover:text-orange-500 transition-colors">{project?.owner?.name || 'Student Developer'}</p>
                   <p className="text-xs text-gray-400">Published {date}</p>
                 </div>
               </Link>
 
               {/* Tags */}
               <div className="flex flex-wrap gap-2 mb-6">
-                {project.tags?.map(tag => (
+                {project?.tags?.map(tag => (
                   <span key={tag} className={`tag-pill text-sm px-3 py-1 ${tagColor(tag)}`}>{tag}</span>
                 ))}
               </div>
 
               {/* Description */}
-              <p className="text-gray-700 leading-relaxed text-[15px] whitespace-pre-line mb-6">{project.description}</p>
+              <p className="text-gray-700 leading-relaxed text-[15px] whitespace-pre-line mb-6">{project?.description}</p>
               
               {/* ── Official Teacher/Faculty Evaluation Card ─────────── */}
               {evaluation && (evaluation.status === 'graded' || evaluation.grade !== undefined) ? (
@@ -358,23 +367,6 @@ export default function ProjectDetails() {
                             <span className="text-xs font-black text-emerald-800">{r.score} <span className="text-[10px] text-gray-400 font-normal">/ {r.maxScore}</span></span>
                           </div>
                           {r.comment && <p className="text-[11px] text-gray-500 italic mt-0.5">"{r.comment}"</p>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Legacy Scores if available and no rubric array */}
-                  {(!evaluation.rubric || evaluation.rubric.length === 0) && evaluation.scores && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
-                      {[
-                        { label: 'Code Quality', score: evaluation.scores.codeQuality },
-                        { label: 'UI/UX Polish', score: evaluation.scores.uiUx },
-                        { label: 'Innovation', score: evaluation.scores.innovation },
-                        { label: 'Documentation', score: evaluation.scores.documentation },
-                      ].map(s => (
-                        <div key={s.label} className="bg-white/80 border border-emerald-100 rounded-xl p-2.5 text-center">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{s.label}</p>
-                          <p className="text-base font-black text-emerald-800">{s.score} <span className="text-[10px] text-gray-400 font-medium">/25</span></p>
                         </div>
                       ))}
                     </div>
@@ -421,12 +413,12 @@ export default function ProjectDetails() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold text-amber-900">Evaluation Status:</span>
-                      <StatusBadge status={project.evaluationStatus || 'pending'} />
+                      <StatusBadge status={project?.evaluationStatus || 'pending'} />
                     </div>
                     <p className="text-xs text-amber-700 mt-1">
-                      {project.evaluationStatus === 'needs_revision'
+                      {project?.evaluationStatus === 'needs_revision'
                         ? 'Faculty requested revisions before finalizing marks.'
-                        : project.evaluationStatus === 'in_review'
+                        : project?.evaluationStatus === 'in_review'
                         ? 'A faculty reviewer is actively evaluating this submission.'
                         : 'This project is in the faculty review queue.'}
                     </p>
@@ -487,7 +479,6 @@ export default function ProjectDetails() {
               ) : null}
             </div>
 
-
             {/* Comments section */}
             <div className="card p-8">
               <h2 className="text-xl font-bold text-gray-900 mb-6">
@@ -498,7 +489,7 @@ export default function ProjectDetails() {
                 <form onSubmit={handlePostComment} className="mb-8">
                   <div className="flex gap-3">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-pink-400 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 mt-1">
-                      {(dbUser?.name || currentUser.displayName || currentUser.email || 'A')[0].toUpperCase()}
+                      {(dbUser?.name || currentUser?.displayName || currentUser?.email || 'A')[0].toUpperCase()}
                     </div>
                     <div className="flex-1">
                       <textarea
@@ -588,7 +579,7 @@ export default function ProjectDetails() {
             {/* Links card */}
             <div className="card p-6 space-y-3">
               <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wider">Links</h3>
-              {project.githubUrl && (
+              {project?.githubUrl && (
                 <a
                   href={project.githubUrl}
                   target="_blank"
@@ -601,7 +592,7 @@ export default function ProjectDetails() {
                   <span className="font-semibold text-sm">View on GitHub</span>
                 </a>
               )}
-              {project.liveDemoUrl && (
+              {project?.liveDemoUrl && (
                 <a
                   href={project.liveDemoUrl}
                   target="_blank"
