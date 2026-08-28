@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: peerhub-api
+    env: node
+    plan: free
+    buildCommand: cd server && npm install
+    startCommand: node server/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: MONGO_URI
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: peer-hub-41362
+      - key: FIREBASE_CLIENT_EMAIL
+        value: firebase-adminsdk-fbsvc@peer-hub-41362.iam.gserviceaccount.com
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
